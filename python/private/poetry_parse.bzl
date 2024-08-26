@@ -36,7 +36,7 @@ def parse_lock_file(data, platforms = None, generate_extras = True):
     # Parse toml file
     packages = {}
     for package_lines in data.split("[[package]]"):
-        section, name, version, description, files, deps, markers, extras = "package", "", "", "", "", [], {}, {}
+        section, name, version, description, files, deps, markers, extras = "package", "", "", "", {}, [], {}, {}
         source_type = ""
         for line in package_lines.split("\n"):
             line = line.strip()
@@ -55,7 +55,11 @@ def parse_lock_file(data, platforms = None, generate_extras = True):
             elif section == "package" and line.startswith("description = "):
                 description = line
             elif section == "package" and line.startswith("{file = ") and ", hash = " in line:
-                files += "\n    " + line.replace("{file = ", "").replace(", hash = ", ": ").replace("},", ",")
+                (fn, sha) = line.replace("{file = ", "").replace(", hash = ", "~~~").replace("},", "").split("~~~")
+                if fn in files and files[fn] != sha:
+                    fail("Duplicate file {} in package {}, with different SHAs: {} and {}".format(fn, name, files[fn], sha))
+                files[fn] = sha
+
 
             elif section == "dependencies" and line and line[0].isalnum():
                 dep_name, dep_version = line.split("=", 1)
@@ -93,13 +97,12 @@ def parse_lock_file(data, platforms = None, generate_extras = True):
             if version != version_:
                 fail("{} package requires two different versions {} and {}".format(name, version_, version))
 
-            files = files_ + files
+            files.update(files_)
             deps = {x: True for x in deps_ + deps}.keys()
             markers.update(markers_)
             source_urls = {x: True for x in source_urls_ + source_urls}.keys()
             extra_index_urls = {x: True for x in extra_index_urls_ + extra_index_urls}.keys()
             extras = extras_ | extras
-
         packages[name] = [version, description, files, deps, markers, source_urls, extra_index_urls, extras]
 
     # Find dependencies to be excluded to prevent cycles
@@ -121,7 +124,7 @@ package(
             name = name,
             version = version,
             description = "\n  " + description + "," if description else "",
-            files = files,
+            files = "\n   " + ",\n   ".join(['{}: {}'.format(k, v) for k, v in files.items()]) + ",\n",
             deps = "\n  deps = [{}],".format(", ".join(deps)) if deps else "",
             markers = "\n  markers = '''{}''',".format(json.encode(markers)) if markers else "",
             source_urls = "\n  source_urls = [\n{}\n  ],".format("\n".join(["    " + url + "," for url in source_urls])) if source_urls else "",
